@@ -21,7 +21,7 @@
 
 #include "common.h"
 
-#if defined(MBEDTLS_SSL_PROTO_TLS1_3_EXPERIMENTAL)
+#if defined(MBEDTLS_SSL_PROTO_TLS1_3)
 
 #if defined(MBEDTLS_SSL_CLI_C)
 
@@ -34,7 +34,7 @@
 #include "ssl_misc.h"
 #include "ecdh_misc.h"
 #include "ssl_tls13_keys.h"
-#include "ssl_debug_helpers_generated.h"
+#include "ssl_debug_helpers.h"
 
 /* Write extensions */
 
@@ -1790,4 +1790,4 @@ int mbedtls_ssl_tls13_handshake_client_step( mbedtls_ssl_context *ssl )
 
 #endif /* MBEDTLS_SSL_CLI_C */
 
-#endif /* MBEDTLS_SSL_PROTO_TLS1_3_EXPERIMENTAL */
+#endif /* MBEDTLS_SSL_PROTO_TLS1_3 */
