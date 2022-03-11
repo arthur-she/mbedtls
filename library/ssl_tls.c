@@ -1412,20 +1412,6 @@ static int ssl_append_dn_hint( mbedtls_x509_buf **head,
     return( 0 );
 }
 
-static int ssl_append_dn_hints( mbedtls_x509_buf **head,
-                                const mbedtls_x509_crt *dn_hints )
-{
-    const mbedtls_x509_crt *crt;
-    int rc = 0;
-    for( crt = dn_hints; crt != NULL && crt->version != 0; crt = crt->next )
-    {
-        rc = ssl_append_dn_hint( head, &crt->subject_raw );
-        if( rc != 0 )
-            break;
-    }
-    return( rc );
-}
-
 #endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 int mbedtls_ssl_conf_own_cert( mbedtls_ssl_config *conf,
@@ -1451,12 +1437,6 @@ void mbedtls_ssl_conf_ca_chain( mbedtls_ssl_config *conf,
 }
 
 #if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
-int mbedtls_ssl_conf_dn_hints( mbedtls_ssl_config *conf,
-                               const mbedtls_x509_crt *dn_hints )
-{
-    return( ssl_append_dn_hints( &conf->dn_hints, dn_hints ) );
-}
-
 int mbedtls_ssl_conf_dn_hint( mbedtls_ssl_config *conf,
                               const mbedtls_x509_buf *dn_hint )
 {
@@ -1505,12 +1485,6 @@ void mbedtls_ssl_set_hs_ca_chain( mbedtls_ssl_context *ssl,
 }
 
 #if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
-int mbedtls_ssl_set_hs_dn_hints( mbedtls_ssl_context *ssl,
-                                 const mbedtls_x509_crt *dn_hints )
-{
-    return( ssl_append_dn_hints( &ssl->handshake->dn_hints, dn_hints ) );
-}
-
 int mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
                                 const mbedtls_x509_buf *dn_hint )
 {

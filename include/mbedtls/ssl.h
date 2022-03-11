@@ -3100,13 +3100,23 @@ int mbedtls_ssl_conf_dn_hint( mbedtls_ssl_config *conf,
  *                 or \c mbedtls_ssl_set_hs_ca_chain())
  *
  * \param conf     SSL configuration
- * \param dn_hints crt chain whose subject DNs are issuer DNs of client certs
+ * \param crt      crt chain whose subject DNs are issuer DNs of client certs
  *                 from which the client should select client peer certificate.
  *
  * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
  */
-int mbedtls_ssl_conf_dn_hints( mbedtls_ssl_config *conf,
-                               const mbedtls_x509_crt *dn_hints );
+static inline int mbedtls_ssl_conf_dn_hints( mbedtls_ssl_config *conf,
+                                             const mbedtls_x509_crt *crt )
+{
+    int rc = 0;
+    for( ; crt != NULL && crt->version != 0; crt = crt->next )
+    {
+        rc = mbedtls_ssl_conf_dn_hint( conf, &crt->subject_raw );
+        if( rc != 0 )
+            break;
+    }
+    return( rc );
+}
 #endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 #if defined(MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK)
@@ -3663,13 +3673,23 @@ int mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
  *                 the SNI callback or the certificate selection callback.
  *
  * \param ssl      SSL context
- * \param dn_hints crt chain whose subject DNs are issuer DNs of client certs
+ * \param crt      crt chain whose subject DNs are issuer DNs of client certs
  *                 from which the client should select client peer certificate.
  *
  * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
  */
-int mbedtls_ssl_set_hs_dn_hints( mbedtls_ssl_context *ssl,
-                                 const mbedtls_x509_crt *dn_hints );
+static inline int mbedtls_ssl_set_hs_dn_hints( mbedtls_ssl_context *ssl,
+                                               const mbedtls_x509_crt *crt )
+{
+    int rc = 0;
+    for( ; crt != NULL && crt->version != 0; crt = crt->next )
+    {
+        rc = mbedtls_ssl_set_hs_dn_hint( ssl, &crt->subject_raw );
+        if( rc != 0 )
+            break;
+    }
+    return( rc );
+}
 #endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 /**
