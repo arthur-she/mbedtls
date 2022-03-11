@@ -1372,6 +1372,14 @@ void mbedtls_ssl_conf_ca_chain( mbedtls_ssl_config *conf,
 #endif /* MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK */
 }
 
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+void mbedtls_ssl_conf_dn_hint ( mbedtls_ssl_config *conf,
+                                mbedtls_x509_crt *dn_hint )
+{
+    conf->dn_hint = dn_hint;
+}
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
 #if defined(MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK)
 void mbedtls_ssl_conf_ca_cb( mbedtls_ssl_config *conf,
                              mbedtls_x509_crt_ca_cb_t f_ca_cb,
@@ -1411,6 +1419,14 @@ void mbedtls_ssl_set_hs_ca_chain( mbedtls_ssl_context *ssl,
     ssl->handshake->sni_ca_chain   = ca_chain;
     ssl->handshake->sni_ca_crl     = ca_crl;
 }
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+void mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
+                                 mbedtls_x509_crt *dn_hint )
+{
+    ssl->handshake->dn_hint = dn_hint;
+}
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 void mbedtls_ssl_set_hs_authmode( mbedtls_ssl_context *ssl,
                                   int authmode )

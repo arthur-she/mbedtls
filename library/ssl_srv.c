@@ -2854,6 +2854,11 @@ static int ssl_write_certificate_request( mbedtls_ssl_context *ssl )
          *       `mbedtls_ssl_conf_ca_cb()`, then the
          *       CertificateRequest is currently left empty. */
 
+        if( ssl->handshake->dn_hint != NULL )
+            crt = ssl->handshake->dn_hint;
+        else if( ssl->conf->dn_hint != NULL )
+            crt = ssl->conf->dn_hint;
+        else
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
         if( ssl->handshake->sni_ca_chain != NULL )
             crt = ssl->handshake->sni_ca_chain;
