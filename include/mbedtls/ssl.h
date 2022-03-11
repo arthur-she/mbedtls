@@ -1481,7 +1481,7 @@ struct mbedtls_ssl_config
 #endif /* MBEDTLS_SSL_SRV_C */
 
 #if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
-    const mbedtls_x509_crt *MBEDTLS_PRIVATE(dn_hint);/*!< acceptable client cert issuers     */
+    mbedtls_x509_buf *MBEDTLS_PRIVATE(dn_hints);     /*!< acceptable client cert issuers     */
 #endif
 };
 
@@ -3077,18 +3077,36 @@ void mbedtls_ssl_conf_ca_chain( mbedtls_ssl_config *conf,
 
 #if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
 /**
- * \brief          Set DN hints sent to client in CertificateRequest message
+ * \brief          Append DN hint sent to client in CertificateRequest message
+ *
+ * \note           Intended for optional use along with mbedtls_ssl_conf_ca_cb()
+ *                 and if not set, DN hints might not be sent.
+ *
+ * \param conf     SSL configuration
+ * \param dn_hint  mbedtls_x509_buf of DER-encoded DN
+ *
+ * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
+ */
+int mbedtls_ssl_conf_dn_hint( mbedtls_ssl_config *conf,
+                              const mbedtls_x509_buf *dn_hint );
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+/**
+ * \brief          Append DN hints sent to client in CertificateRequest message
  *
  * \note           If not set, subject distinguished names (DNs) are taken
  *                 from \c mbedtls_ssl_conf_ca_chain()
  *                 or \c mbedtls_ssl_set_hs_ca_chain())
  *
  * \param conf     SSL configuration
- * \param dn_hint  crt chain whose subject DNs are issuer DNs of client certs
+ * \param dn_hints crt chain whose subject DNs are issuer DNs of client certs
  *                 from which the client should select client peer certificate.
+ *
+ * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
  */
-void mbedtls_ssl_conf_dn_hint( mbedtls_ssl_config *conf,
-                               mbedtls_x509_crt *dn_hint );
+int mbedtls_ssl_conf_dn_hints( mbedtls_ssl_config *conf,
+                               const mbedtls_x509_crt *dn_hints );
 #endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 #if defined(MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK)
@@ -3617,17 +3635,41 @@ void mbedtls_ssl_set_hs_ca_chain( mbedtls_ssl_context *ssl,
 
 #if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
 /**
- * \brief          Set DN hints sent to client in CertificateRequest message
+ * \brief          Append DN hint sent to client in CertificateRequest message
  *
  * \note           Same as \c mbedtls_ssl_conf_dn_hint() but for use within
  *                 the SNI callback or the certificate selection callback.
  *
+ * \note           Intended for optional use along with mbedtls_ssl_conf_ca_cb()
+ *                 and if not set, DN hints might not be sent.
+ *
+ * \note           Passing null \c dn_hint clears the DN hints for the current
+ *                 handshake, though not DN hints, if any, set in ssl_config.
+ *
  * \param ssl      SSL context
- * \param dn_hint  crt chain whose subject DNs are issuer DNs of client certs
- *                 from which the client should select client peer certificate.
+ * \param dn_hint  mbedtls_x509_buf of DER-encoded DN
+ *
+ * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
  */
-void mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
-                                 mbedtls_x509_crt *dn_hint );
+int mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
+                                const mbedtls_x509_buf *dn_hint );
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+/**
+ * \brief          Append DN hints sent to client in CertificateRequest message
+ *
+ * \note           Same as \c mbedtls_ssl_conf_dn_hints() but for use within
+ *                 the SNI callback or the certificate selection callback.
+ *
+ * \param ssl      SSL context
+ * \param dn_hints crt chain whose subject DNs are issuer DNs of client certs
+ *                 from which the client should select client peer certificate.
+ *
+ * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
+ */
+int mbedtls_ssl_set_hs_dn_hints( mbedtls_ssl_context *ssl,
+                                 const mbedtls_x509_crt *dn_hints );
 #endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 /**

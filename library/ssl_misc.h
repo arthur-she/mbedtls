@@ -854,11 +854,10 @@ struct mbedtls_ssl_handshake_params
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
     const unsigned char *sni_name;      /*!< raw SNI                        */
     size_t sni_name_len;                /*!< raw SNI len                    */
-#endif /* MBEDTLS_SSL_SERVER_NAME_INDICATION */
-
 #if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
-    const mbedtls_x509_crt *dn_hint;    /*!< acceptable client cert issuers */
+    mbedtls_x509_buf *dn_hints;         /*!< acceptable client cert issuers */
 #endif
+#endif /* MBEDTLS_SSL_SERVER_NAME_INDICATION */
 };
 
 typedef struct mbedtls_ssl_hs_buffer mbedtls_ssl_hs_buffer;

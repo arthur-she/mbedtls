@@ -1350,6 +1350,84 @@ static int ssl_append_key_cert( mbedtls_ssl_key_cert **head,
     return( 0 );
 }
 
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+
+static void ssl_dn_hints_free( mbedtls_x509_buf *dn_hints )
+{
+    if( dn_hints != NULL )
+    {
+        mbedtls_free( dn_hints->p );
+        mbedtls_free( dn_hints );
+    }
+}
+
+static int ssl_append_dn_hint( mbedtls_x509_buf **head,
+                               const mbedtls_x509_buf *dn_hint )
+{
+    mbedtls_x509_buf *dn_hints = *head;
+    unsigned char *p;
+    size_t len;
+
+    if( dn_hint == NULL )
+    {
+        /* Free list if dn_hint is null */
+        ssl_dn_hints_free( dn_hints );
+        *head = NULL;
+        return( 0 );
+    }
+
+    if( dn_hints == NULL )
+    {
+        *head = dn_hints = mbedtls_calloc( 1, sizeof( mbedtls_x509_buf ) );
+        if( dn_hints == NULL )
+            return( MBEDTLS_ERR_SSL_ALLOC_FAILED );
+    }
+
+    /* TLSv1.2 and TLSv1.3 share same format for DistinguishedName list */
+
+    /* It follows from RFC 5280 A.1 that this length
+     * can be represented in at most 11 bits. */
+    len = dn_hints->len + 2 + dn_hint->len;
+    if( len >= ( 1u << 11 ) )
+    {
+        /*MBEDTLS_SSL_DEBUG_MSG( 1, ( "skipping DN; DN hints list too long" ) );*/
+        return( 0 );
+    }
+
+    /* long list not expected; realloc to exact length for each append */
+    p = (unsigned char *)mbedtls_calloc(1, len);
+    if( p == NULL )
+        return( MBEDTLS_ERR_SSL_ALLOC_FAILED );
+    if( dn_hints->p )
+    {
+        memcpy(p, dn_hints->p, dn_hints->len);
+        mbedtls_free(dn_hints->p);
+    }
+    dn_hints->p = p;
+    p += dn_hints->len;
+    dn_hints->len = len;
+    MBEDTLS_PUT_UINT16_BE( dn_hint->len, p, 0 );
+    memcpy( p+2, dn_hint->p, dn_hint->len );
+
+    return( 0 );
+}
+
+static int ssl_append_dn_hints( mbedtls_x509_buf **head,
+                                const mbedtls_x509_crt *dn_hints )
+{
+    const mbedtls_x509_crt *crt;
+    int rc = 0;
+    for( crt = dn_hints; crt != NULL && crt->version != 0; crt = crt->next )
+    {
+        rc = ssl_append_dn_hint( head, &crt->subject_raw );
+        if( rc != 0 )
+            break;
+    }
+    return( rc );
+}
+
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
 int mbedtls_ssl_conf_own_cert( mbedtls_ssl_config *conf,
                               mbedtls_x509_crt *own_cert,
                               mbedtls_pk_context *pk_key )
@@ -1373,10 +1451,16 @@ void mbedtls_ssl_conf_ca_chain( mbedtls_ssl_config *conf,
 }
 
 #if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
-void mbedtls_ssl_conf_dn_hint ( mbedtls_ssl_config *conf,
-                                mbedtls_x509_crt *dn_hint )
+int mbedtls_ssl_conf_dn_hints( mbedtls_ssl_config *conf,
+                               const mbedtls_x509_crt *dn_hints )
 {
-    conf->dn_hint = dn_hint;
+    return( ssl_append_dn_hints( &conf->dn_hints, dn_hints ) );
+}
+
+int mbedtls_ssl_conf_dn_hint( mbedtls_ssl_config *conf,
+                              const mbedtls_x509_buf *dn_hint )
+{
+    return( ssl_append_dn_hint( &conf->dn_hints, dn_hint ) );
 }
 #endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
@@ -1421,10 +1505,16 @@ void mbedtls_ssl_set_hs_ca_chain( mbedtls_ssl_context *ssl,
 }
 
 #if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
-void mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
-                                 mbedtls_x509_crt *dn_hint )
+int mbedtls_ssl_set_hs_dn_hints( mbedtls_ssl_context *ssl,
+                                 const mbedtls_x509_crt *dn_hints )
 {
-    ssl->handshake->dn_hint = dn_hint;
+    return( ssl_append_dn_hints( &ssl->handshake->dn_hints, dn_hints ) );
+}
+
+int mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
+                                const mbedtls_x509_buf *dn_hint )
+{
+    return( ssl_append_dn_hint( &ssl->handshake->dn_hints, dn_hint ) );
 }
 #endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
@@ -3117,6 +3207,11 @@ void mbedtls_ssl_handshake_free( mbedtls_ssl_context *ssl )
     mbedtls_free( handshake->transform_handshake );
 #endif /* MBEDTLS_SSL_PROTO_TLS1_3 */
 
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED) && \
+    defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
+    if( handshake->dn_hints != NULL )
+        ssl_dn_hints_free( handshake->dn_hints );
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 #if defined(MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH)
     /* If the buffers are too big - reallocate. Because of the way Mbed TLS
@@ -4273,6 +4368,11 @@ void mbedtls_ssl_config_free( mbedtls_ssl_config *conf )
 #if defined(MBEDTLS_X509_CRT_PARSE_C)
     ssl_key_cert_free( conf->key_cert );
 #endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+    if( conf->dn_hints != NULL )
+        ssl_dn_hints_free( conf->dn_hints );
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
     mbedtls_platform_zeroize( conf, sizeof( mbedtls_ssl_config ) );
 }

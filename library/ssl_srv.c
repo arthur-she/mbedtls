@@ -2739,7 +2739,7 @@ static int ssl_write_certificate_request( mbedtls_ssl_context *ssl )
     int ret = MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE;
     const mbedtls_ssl_ciphersuite_t *ciphersuite_info =
         ssl->handshake->ciphersuite_info;
-    uint16_t dn_size, total_dn_size; /* excluding length bytes */
+    size_t dn_size, total_dn_size; /* excluding length bytes */
     size_t ct_len, sa_len; /* including length bytes */
     unsigned char *buf, *p;
     const unsigned char * const end = ssl->out_msg + MBEDTLS_SSL_OUT_CONTENT_LEN;
@@ -2849,15 +2849,37 @@ static int ssl_write_certificate_request( mbedtls_ssl_context *ssl )
 
     if( ssl->conf->cert_req_ca_list ==  MBEDTLS_SSL_CERT_REQ_CA_LIST_ENABLED )
     {
-        /* NOTE: If trusted certificates are provisioned
-         *       via a CA callback (configured through
-         *       `mbedtls_ssl_conf_ca_cb()`, then the
-         *       CertificateRequest is currently left empty. */
+        mbedtls_x509_buf *dn_hints = NULL;
+#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
+        if( ssl->handshake->dn_hints != NULL )
+            dn_hints = ssl->handshake->dn_hints;
+        else
+#endif
+        if( ssl->conf->dn_hints != NULL )
+            dn_hints = ssl->conf->dn_hints;
 
-        if( ssl->handshake->dn_hint != NULL )
-            crt = ssl->handshake->dn_hint;
-        else if( ssl->conf->dn_hint != NULL )
-            crt = ssl->conf->dn_hint;
+        if( dn_hints )
+        {
+            const size_t remain = ( end > p ? (size_t)( end - p ) : 0 );
+            if( remain >= dn_hints->len )
+                total_dn_size = dn_hints->len;
+            else if( dn_hints->len != 0 )
+            {
+                const unsigned char * const q = dn_hints->p;
+                uint16_t n;
+                do
+                    n = MBEDTLS_GET_UINT16_BE(q, total_dn_size);
+                while ( ( total_dn_size += 2 + n ) <= remain );
+                total_dn_size -= 2 + n;
+                MBEDTLS_SSL_DEBUG_MSG( 1,
+                                       ( "truncating CAs: buffer too short" ) );
+            }
+
+            if( total_dn_size != 0 )
+                memcpy( p, dn_hints->p, total_dn_size );
+            p += total_dn_size;
+            crt = NULL;
+        }
         else
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
         if( ssl->handshake->sni_ca_chain != NULL )
