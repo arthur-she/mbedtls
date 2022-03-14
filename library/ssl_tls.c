@@ -1233,6 +1233,14 @@ void mbedtls_ssl_set_timer_cb( mbedtls_ssl_context *ssl,
 }
 
 #if defined(MBEDTLS_SSL_SRV_C)
+void mbedtls_ssl_conf_cert_cb( mbedtls_ssl_config *conf,
+                               int (*f_cert_cb)(mbedtls_ssl_context *) )
+{
+    conf->f_cert_cb = f_cert_cb;
+}
+#endif /* MBEDTLS_SSL_SRV_C */
+
+#if defined(MBEDTLS_SSL_SRV_C)
 void mbedtls_ssl_conf_session_cache( mbedtls_ssl_config *conf,
                                      void *p_cache,
                                      mbedtls_ssl_cache_get_t *f_get_cache,
@@ -1291,12 +1299,32 @@ void mbedtls_ssl_conf_cert_profile( mbedtls_ssl_config *conf,
     conf->cert_profile = profile;
 }
 
+static void ssl_key_cert_free( mbedtls_ssl_key_cert *key_cert )
+{
+    mbedtls_ssl_key_cert *cur = key_cert, *next;
+
+    while( cur != NULL )
+    {
+        next = cur->next;
+        mbedtls_free( cur );
+        cur = next;
+    }
+}
+
 /* Append a new keycert entry to a (possibly empty) list */
 static int ssl_append_key_cert( mbedtls_ssl_key_cert **head,
                                 mbedtls_x509_crt *cert,
                                 mbedtls_pk_context *key )
 {
     mbedtls_ssl_key_cert *new_cert;
+
+    if( cert == NULL )
+    {
+        /* Free list if cert is null */
+        ssl_key_cert_free( *head );
+        *head = NULL;
+        return( 0 );
+    }
 
     new_cert = mbedtls_calloc( 1, sizeof( mbedtls_ssl_key_cert ) );
     if( new_cert == NULL )
@@ -1306,7 +1334,7 @@ static int ssl_append_key_cert( mbedtls_ssl_key_cert **head,
     new_cert->key  = key;
     new_cert->next = NULL;
 
-    /* Update head is the list was null, else add to the end */
+    /* Update head if the list was null, else add to the end */
     if( *head == NULL )
     {
         *head = new_cert;
@@ -1321,6 +1349,70 @@ static int ssl_append_key_cert( mbedtls_ssl_key_cert **head,
 
     return( 0 );
 }
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+
+static void ssl_dn_hints_free( mbedtls_x509_buf *dn_hints )
+{
+    if( dn_hints != NULL )
+    {
+        mbedtls_free( dn_hints->p );
+        mbedtls_free( dn_hints );
+    }
+}
+
+static int ssl_append_dn_hint( mbedtls_x509_buf **head,
+                               const mbedtls_x509_buf *dn_hint )
+{
+    mbedtls_x509_buf *dn_hints = *head;
+    unsigned char *p;
+    size_t len;
+
+    if( dn_hint == NULL )
+    {
+        /* Free list if dn_hint is null */
+        ssl_dn_hints_free( dn_hints );
+        *head = NULL;
+        return( 0 );
+    }
+
+    if( dn_hints == NULL )
+    {
+        *head = dn_hints = mbedtls_calloc( 1, sizeof( mbedtls_x509_buf ) );
+        if( dn_hints == NULL )
+            return( MBEDTLS_ERR_SSL_ALLOC_FAILED );
+    }
+
+    /* TLSv1.2 and TLSv1.3 share same format for DistinguishedName list */
+
+    /* It follows from RFC 5280 A.1 that this length
+     * can be represented in at most 11 bits. */
+    len = dn_hints->len + 2 + dn_hint->len;
+    if( len >= ( 1u << 11 ) )
+    {
+        /*MBEDTLS_SSL_DEBUG_MSG( 1, ( "skipping DN; DN hints list too long" ) );*/
+        return( 0 );
+    }
+
+    /* long list not expected; realloc to exact length for each append */
+    p = (unsigned char *)mbedtls_calloc(1, len);
+    if( p == NULL )
+        return( MBEDTLS_ERR_SSL_ALLOC_FAILED );
+    if( dn_hints->p )
+    {
+        memcpy(p, dn_hints->p, dn_hints->len);
+        mbedtls_free(dn_hints->p);
+    }
+    dn_hints->p = p;
+    p += dn_hints->len;
+    dn_hints->len = len;
+    MBEDTLS_PUT_UINT16_BE( dn_hint->len, p, 0 );
+    memcpy( p+2, dn_hint->p, dn_hint->len );
+
+    return( 0 );
+}
+
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 int mbedtls_ssl_conf_own_cert( mbedtls_ssl_config *conf,
                               mbedtls_x509_crt *own_cert,
@@ -1344,6 +1436,14 @@ void mbedtls_ssl_conf_ca_chain( mbedtls_ssl_config *conf,
 #endif /* MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK */
 }
 
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+int mbedtls_ssl_conf_dn_hint( mbedtls_ssl_config *conf,
+                              const mbedtls_x509_buf *dn_hint )
+{
+    return( ssl_append_dn_hint( &conf->dn_hints, dn_hint ) );
+}
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
 #if defined(MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK)
 void mbedtls_ssl_conf_ca_cb( mbedtls_ssl_config *conf,
                              mbedtls_x509_crt_ca_cb_t f_ca_cb,
@@ -1361,6 +1461,13 @@ void mbedtls_ssl_conf_ca_cb( mbedtls_ssl_config *conf,
 #endif /* MBEDTLS_X509_CRT_PARSE_C */
 
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
+const unsigned char *mbedtls_ssl_get_hs_sni( mbedtls_ssl_context *ssl,
+                                             size_t *name_len )
+{
+    *name_len = ssl->handshake->sni_name_len;
+    return( ssl->handshake->sni_name );
+}
+
 int mbedtls_ssl_set_hs_own_cert( mbedtls_ssl_context *ssl,
                                  mbedtls_x509_crt *own_cert,
                                  mbedtls_pk_context *pk_key )
@@ -1376,6 +1483,14 @@ void mbedtls_ssl_set_hs_ca_chain( mbedtls_ssl_context *ssl,
     ssl->handshake->sni_ca_chain   = ca_chain;
     ssl->handshake->sni_ca_crl     = ca_crl;
 }
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+int mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
+                                const mbedtls_x509_buf *dn_hint )
+{
+    return( ssl_append_dn_hint( &ssl->handshake->dn_hints, dn_hint ) );
+}
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 void mbedtls_ssl_set_hs_authmode( mbedtls_ssl_context *ssl,
                                   int authmode )
@@ -2941,20 +3056,6 @@ int mbedtls_ssl_renegotiate( mbedtls_ssl_context *ssl )
 }
 #endif /* MBEDTLS_SSL_RENEGOTIATION */
 
-#if defined(MBEDTLS_X509_CRT_PARSE_C)
-static void ssl_key_cert_free( mbedtls_ssl_key_cert *key_cert )
-{
-    mbedtls_ssl_key_cert *cur = key_cert, *next;
-
-    while( cur != NULL )
-    {
-        next = cur->next;
-        mbedtls_free( cur );
-        cur = next;
-    }
-}
-#endif /* MBEDTLS_X509_CRT_PARSE_C */
-
 void mbedtls_ssl_handshake_free( mbedtls_ssl_context *ssl )
 {
     mbedtls_ssl_handshake_params *handshake = ssl->handshake;
@@ -3042,17 +3143,7 @@ void mbedtls_ssl_handshake_free( mbedtls_ssl_context *ssl )
      * Free only the linked list wrapper, not the keys themselves
      * since the belong to the SNI callback
      */
-    if( handshake->sni_key_cert != NULL )
-    {
-        mbedtls_ssl_key_cert *cur = handshake->sni_key_cert, *next;
-
-        while( cur != NULL )
-        {
-            next = cur->next;
-            mbedtls_free( cur );
-            cur = next;
-        }
-    }
+    ssl_key_cert_free( handshake->sni_key_cert );
 #endif /* MBEDTLS_X509_CRT_PARSE_C && MBEDTLS_SSL_SERVER_NAME_INDICATION */
 
 #if defined(MBEDTLS_SSL_ECP_RESTARTABLE_ENABLED)
@@ -3090,6 +3181,11 @@ void mbedtls_ssl_handshake_free( mbedtls_ssl_context *ssl )
     mbedtls_free( handshake->transform_handshake );
 #endif /* MBEDTLS_SSL_PROTO_TLS1_3 */
 
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED) && \
+    defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
+    if( handshake->dn_hints != NULL )
+        ssl_dn_hints_free( handshake->dn_hints );
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
 #if defined(MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH)
     /* If the buffers are too big - reallocate. Because of the way Mbed TLS
@@ -4246,6 +4342,11 @@ void mbedtls_ssl_config_free( mbedtls_ssl_config *conf )
 #if defined(MBEDTLS_X509_CRT_PARSE_C)
     ssl_key_cert_free( conf->key_cert );
 #endif
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+    if( conf->dn_hints != NULL )
+        ssl_dn_hints_free( conf->dn_hints );
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
 
     mbedtls_platform_zeroize( conf, sizeof( mbedtls_ssl_config ) );
 }

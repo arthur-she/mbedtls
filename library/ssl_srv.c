@@ -118,6 +118,11 @@ static int ssl_parse_servername_ext( mbedtls_ssl_context *ssl,
 
         if( p[0] == MBEDTLS_TLS_EXT_SERVERNAME_HOSTNAME )
         {
+            ssl->handshake->sni_name = p + 3;
+            ssl->handshake->sni_name_len = hostname_len;
+            if( ssl->conf->f_sni == NULL )
+                return( 0 );
+
             ret = ssl->conf->f_sni( ssl->conf->p_sni,
                                     ssl, p + 3, hostname_len );
             if( ret != 0 )
@@ -1643,9 +1648,6 @@ read_record_header:
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
             case MBEDTLS_TLS_EXT_SERVERNAME:
                 MBEDTLS_SSL_DEBUG_MSG( 3, ( "found ServerName extension" ) );
-                if( ssl->conf->f_sni == NULL )
-                    break;
-
                 ret = ssl_parse_servername_ext( ssl, ext + 4, ext_size );
                 if( ret != 0 )
                     return( ret );
@@ -1871,9 +1873,23 @@ read_record_header:
     }
 
     /*
+     * Server certification selection (after processing TLS extensions)
+     */
+    if( ssl->conf->f_cert_cb && ( ret = ssl->conf->f_cert_cb( ssl ) ) != 0 )
+    {
+        MBEDTLS_SSL_DEBUG_RET( 1, "f_cert_cb", ret );
+        return( ret );
+    }
+#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
+    ssl->handshake->sni_name = NULL;
+    ssl->handshake->sni_name_len = 0;
+#endif
+
+    /*
      * Search for a matching ciphersuite
      * (At the end because we need information from the EC-based extensions
-     * and certificate from the SNI callback triggered by the SNI extension.)
+     * and certificate from the SNI callback triggered by the SNI extension
+     * or certificate from server certificate selection callback.)
      */
     got_common_suite = 0;
     ciphersuites = ssl->conf->ciphersuite_list;
@@ -2723,7 +2739,7 @@ static int ssl_write_certificate_request( mbedtls_ssl_context *ssl )
     int ret = MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE;
     const mbedtls_ssl_ciphersuite_t *ciphersuite_info =
         ssl->handshake->ciphersuite_info;
-    uint16_t dn_size, total_dn_size; /* excluding length bytes */
+    size_t dn_size, total_dn_size; /* excluding length bytes */
     size_t ct_len, sa_len; /* including length bytes */
     unsigned char *buf, *p;
     const unsigned char * const end = ssl->out_msg + MBEDTLS_SSL_OUT_CONTENT_LEN;
@@ -2833,11 +2849,38 @@ static int ssl_write_certificate_request( mbedtls_ssl_context *ssl )
 
     if( ssl->conf->cert_req_ca_list ==  MBEDTLS_SSL_CERT_REQ_CA_LIST_ENABLED )
     {
-        /* NOTE: If trusted certificates are provisioned
-         *       via a CA callback (configured through
-         *       `mbedtls_ssl_conf_ca_cb()`, then the
-         *       CertificateRequest is currently left empty. */
+        mbedtls_x509_buf *dn_hints = NULL;
+#if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
+        if( ssl->handshake->dn_hints != NULL )
+            dn_hints = ssl->handshake->dn_hints;
+        else
+#endif
+        if( ssl->conf->dn_hints != NULL )
+            dn_hints = ssl->conf->dn_hints;
 
+        if( dn_hints )
+        {
+            const size_t remain = ( end > p ? (size_t)( end - p ) : 0 );
+            if( remain >= dn_hints->len )
+                total_dn_size = dn_hints->len;
+            else if( dn_hints->len != 0 )
+            {
+                const unsigned char * const q = dn_hints->p;
+                uint16_t n;
+                do
+                    n = MBEDTLS_GET_UINT16_BE(q, total_dn_size);
+                while ( ( total_dn_size += 2 + n ) <= remain );
+                total_dn_size -= 2 + n;
+                MBEDTLS_SSL_DEBUG_MSG( 1,
+                                       ( "truncating CAs: buffer too short" ) );
+            }
+
+            if( total_dn_size != 0 )
+                memcpy( p, dn_hints->p, total_dn_size );
+            p += total_dn_size;
+            crt = NULL;
+        }
+        else
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
         if( ssl->handshake->sni_ca_chain != NULL )
             crt = ssl->handshake->sni_ca_chain;

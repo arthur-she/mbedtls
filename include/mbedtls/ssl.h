@@ -1475,6 +1475,14 @@ struct mbedtls_ssl_config
      * access it afterwards.
      */
     mbedtls_ssl_user_data_t MBEDTLS_PRIVATE(user_data);
+
+#if defined(MBEDTLS_SSL_SRV_C)
+    int (*MBEDTLS_PRIVATE(f_cert_cb))(mbedtls_ssl_context *); /*!< certificate selection callback */
+#endif /* MBEDTLS_SSL_SRV_C */
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+    mbedtls_x509_buf *MBEDTLS_PRIVATE(dn_hints);     /*!< acceptable client cert issuers     */
+#endif
 };
 
 struct mbedtls_ssl_context
@@ -2219,6 +2227,28 @@ void mbedtls_ssl_set_timer_cb( mbedtls_ssl_context *ssl,
                                void *p_timer,
                                mbedtls_ssl_set_timer_t *f_set_timer,
                                mbedtls_ssl_get_timer_t *f_get_timer );
+
+#if defined(MBEDTLS_SSL_SRV_C)
+/**
+ * \brief           Set the certificate selection callback (server-side only).
+ *
+ *                  If set, the callback is always called for each handshake,
+ *                  after `ClientHello` processing has finished.
+ *
+ *                  The callback has the following parameters:
+ *                  - \c mbedtls_ssl_context*: The SSL context to which
+ *                                             the operation applies.
+ *                  The return value of the callback is 0 if successful,
+ *                  or a specific MBEDTLS_ERR_XXX code, which will cause
+ *                  the handshake to be aborted.
+ *
+ * \param conf      The SSL configuration to register the callback with.
+ * \param f_cert_cb The callback for selecting server certificate after
+ *                  `ClientHello` processing has finished.
+ */
+void mbedtls_ssl_conf_cert_cb( mbedtls_ssl_config *conf,
+                               int (*f_cert_cb)(mbedtls_ssl_context *) );
+#endif /* MBEDTLS_SSL_SRV_C */
 
 /**
  * \brief           Callback type: generate and write session ticket
@@ -3045,6 +3075,50 @@ void mbedtls_ssl_conf_ca_chain( mbedtls_ssl_config *conf,
                                mbedtls_x509_crt *ca_chain,
                                mbedtls_x509_crl *ca_crl );
 
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+/**
+ * \brief          Append DN hint sent to client in CertificateRequest message
+ *
+ * \note           Intended for optional use along with mbedtls_ssl_conf_ca_cb()
+ *                 and if not set, DN hints might not be sent.
+ *
+ * \param conf     SSL configuration
+ * \param dn_hint  mbedtls_x509_buf of DER-encoded DN
+ *
+ * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
+ */
+int mbedtls_ssl_conf_dn_hint( mbedtls_ssl_config *conf,
+                              const mbedtls_x509_buf *dn_hint );
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+/**
+ * \brief          Append DN hints sent to client in CertificateRequest message
+ *
+ * \note           If not set, subject distinguished names (DNs) are taken
+ *                 from \c mbedtls_ssl_conf_ca_chain()
+ *                 or \c mbedtls_ssl_set_hs_ca_chain())
+ *
+ * \param conf     SSL configuration
+ * \param crt      crt chain whose subject DNs are issuer DNs of client certs
+ *                 from which the client should select client peer certificate.
+ *
+ * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
+ */
+static inline int mbedtls_ssl_conf_dn_hints( mbedtls_ssl_config *conf,
+                                             const mbedtls_x509_crt *crt )
+{
+    int rc = 0;
+    for( ; crt != NULL && crt->version != 0; crt = crt->next )
+    {
+        rc = mbedtls_ssl_conf_dn_hint( conf, &crt->subject_raw );
+        if( rc != 0 )
+            break;
+    }
+    return( rc );
+}
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
 #if defined(MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK)
 /**
  * \brief          Set the trusted certificate callback.
@@ -3515,10 +3589,34 @@ int mbedtls_ssl_set_hostname( mbedtls_ssl_context *ssl, const char *hostname );
 
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
 /**
+ * \brief          Retrieve SNI extension value for the current handshake.
+ *                 Available in \p f_cert_cb of \c mbedtls_ssl_conf_cert_cb(),
+ *                 this is the same value passed to \p f_sni callback of
+ *                 \c mbedtls_ssl_conf_sni() and may be used instead of
+ *                 \c mbedtls_ssl_conf_sni().
+ *
+ * \param ssl      SSL context
+ * \param name_len pointer into which to store length of returned value.
+ *                 0 if SNI extension is not present or not yet processed.
+ *
+ * \return         const pointer to SNI extension value.
+ *                 - value is valid only when called in \p f_cert_cb
+ *                   registered with \c mbedtls_ssl_conf_cert_cb().
+ *                 - value is NULL if SNI extension is not present.
+ *                 - value is not '\0'-terminated.  Use \c name_len for len.
+ *                 - value must not be freed.
+ */
+const unsigned char *mbedtls_ssl_get_hs_sni( mbedtls_ssl_context *ssl,
+                                             size_t *name_len );
+
+/**
  * \brief          Set own certificate and key for the current handshake
  *
  * \note           Same as \c mbedtls_ssl_conf_own_cert() but for use within
- *                 the SNI callback.
+ *                 the SNI callback or the certificate selection callback.
+ *
+ * \note           Passing null \c own_cert clears the certificate list for
+ *                 the current handshake.
  *
  * \param ssl      SSL context
  * \param own_cert own public certificate chain
@@ -3535,7 +3633,7 @@ int mbedtls_ssl_set_hs_own_cert( mbedtls_ssl_context *ssl,
  *                 current handshake
  *
  * \note           Same as \c mbedtls_ssl_conf_ca_chain() but for use within
- *                 the SNI callback.
+ *                 the SNI callback or the certificate selection callback.
  *
  * \param ssl      SSL context
  * \param ca_chain trusted CA chain (meaning all fully trusted top-level CAs)
@@ -3545,11 +3643,60 @@ void mbedtls_ssl_set_hs_ca_chain( mbedtls_ssl_context *ssl,
                                   mbedtls_x509_crt *ca_chain,
                                   mbedtls_x509_crl *ca_crl );
 
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+/**
+ * \brief          Append DN hint sent to client in CertificateRequest message
+ *
+ * \note           Same as \c mbedtls_ssl_conf_dn_hint() but for use within
+ *                 the SNI callback or the certificate selection callback.
+ *
+ * \note           Intended for optional use along with mbedtls_ssl_conf_ca_cb()
+ *                 and if not set, DN hints might not be sent.
+ *
+ * \note           Passing null \c dn_hint clears the DN hints for the current
+ *                 handshake, though not DN hints, if any, set in ssl_config.
+ *
+ * \param ssl      SSL context
+ * \param dn_hint  mbedtls_x509_buf of DER-encoded DN
+ *
+ * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
+ */
+int mbedtls_ssl_set_hs_dn_hint( mbedtls_ssl_context *ssl,
+                                const mbedtls_x509_buf *dn_hint );
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
+#if defined(MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED)
+/**
+ * \brief          Append DN hints sent to client in CertificateRequest message
+ *
+ * \note           Same as \c mbedtls_ssl_conf_dn_hints() but for use within
+ *                 the SNI callback or the certificate selection callback.
+ *
+ * \param ssl      SSL context
+ * \param crt      crt chain whose subject DNs are issuer DNs of client certs
+ *                 from which the client should select client peer certificate.
+ *
+ * \return         0 on success or MBEDTLS_ERR_SSL_ALLOC_FAILED
+ */
+static inline int mbedtls_ssl_set_hs_dn_hints( mbedtls_ssl_context *ssl,
+                                               const mbedtls_x509_crt *crt )
+{
+    int rc = 0;
+    for( ; crt != NULL && crt->version != 0; crt = crt->next )
+    {
+        rc = mbedtls_ssl_set_hs_dn_hint( ssl, &crt->subject_raw );
+        if( rc != 0 )
+            break;
+    }
+    return( rc );
+}
+#endif /* MBEDTLS_KEY_EXCHANGE_CERT_REQ_ALLOWED_ENABLED */
+
 /**
  * \brief          Set authmode for the current handshake.
  *
  * \note           Same as \c mbedtls_ssl_conf_authmode() but for use within
- *                 the SNI callback.
+ *                 the SNI callback or the certificate selection callback.
  *
  * \param ssl      SSL context
  * \param authmode MBEDTLS_SSL_VERIFY_NONE, MBEDTLS_SSL_VERIFY_OPTIONAL or
@@ -3574,8 +3721,7 @@ void mbedtls_ssl_set_hs_authmode( mbedtls_ssl_context *ssl,
  *                 mbedtls_ssl_set_hs_ca_chain() as well as the client
  *                 authentication mode with \c mbedtls_ssl_set_hs_authmode(),
  *                 then must return 0. If no matching name is found, the
- *                 callback must either set a default cert, or
- *                 return non-zero to abort the handshake at this point.
+ *                 callback may return non-zero to abort the handshake.
  *
  * \param conf     SSL configuration
  * \param f_sni    verification function
