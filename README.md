@@ -311,6 +311,8 @@ Contributing
 
 We gratefully accept bug reports and contributions from the community. Please see the [contributing guidelines](CONTRIBUTING.md) for details on how to do this.
 
+Dummy commit
+
 Contact
 -------
 
@@ -318,4 +320,4 @@ Contact
 * To report a bug or request a feature in Mbed TLS, please [file an issue on GitHub](https://github.com/ARMmbed/mbedtls/issues/new/choose).
 * Please see [`SUPPORT.md`](SUPPORT.md) for other channels for discussion and support about Mbed TLS.
 
-Dummy update
+Dummy PR 2
