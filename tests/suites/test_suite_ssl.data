@@ -10,7 +10,7 @@ test_multiple_psks_opaque:1
 Attempt to register multiple PSKs, incl. opaque PSK, #2
 test_multiple_psks_opaque:2
 
-Test calback buffer sanity
+Test callback buffer sanity
 test_callback_buffer_sanity:
 
 Callback buffer test: Exercise simple write/read
@@ -624,7 +624,7 @@ ssl_dtls_replay:"abcd12340000abcd12340001abcd12340003":"abcd12350000":0
 SSL DTLS replay: delayed
 ssl_dtls_replay:"abcd12340000abcd12340001abcd12340003":"abcd12340002":0
 
-SSL DTLS replay: lastest replayed
+SSL DTLS replay: last replayed
 ssl_dtls_replay:"abcd12340000abcd12340001abcd12340003":"abcd12340003":-1
 
 SSL DTLS replay: older replayed
@@ -3277,9 +3277,9 @@ Version config: unsupported client DTLS 1.3 only
 depends_on:MBEDTLS_SSL_PROTO_TLS1_3
 conf_version:MBEDTLS_SSL_IS_CLIENT:MBEDTLS_SSL_TRANSPORT_DATAGRAM:MBEDTLS_SSL_VERSION_TLS1_3:MBEDTLS_SSL_VERSION_TLS1_3:MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE
 
-Version config: unsupported server TLS 1.3 only
+Version config: valid server TLS 1.3 only
 depends_on:MBEDTLS_SSL_PROTO_TLS1_3
-conf_version:MBEDTLS_SSL_IS_SERVER:MBEDTLS_SSL_TRANSPORT_STREAM:MBEDTLS_SSL_VERSION_TLS1_3:MBEDTLS_SSL_VERSION_TLS1_3:MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE
+conf_version:MBEDTLS_SSL_IS_SERVER:MBEDTLS_SSL_TRANSPORT_STREAM:MBEDTLS_SSL_VERSION_TLS1_3:MBEDTLS_SSL_VERSION_TLS1_3:0
 
 Version config: unsupported server DTLS 1.3 only
 depends_on:MBEDTLS_SSL_PROTO_TLS1_3
