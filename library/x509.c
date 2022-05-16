@@ -39,10 +39,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(MBEDTLS_PEM_PARSE_C)
-#include "mbedtls/pem.h"
-#endif
-
 #if defined(MBEDTLS_PLATFORM_C)
 #include "mbedtls/platform.h"
 #else
@@ -50,8 +46,6 @@
 #include <stdlib.h>
 #define mbedtls_free      free
 #define mbedtls_calloc    calloc
-#define mbedtls_printf    printf
-#define mbedtls_snprintf  snprintf
 #endif
 
 #if defined(MBEDTLS_HAVE_TIME)
@@ -734,165 +728,6 @@ int mbedtls_x509_get_ext( unsigned char **p, const unsigned char *end,
     return( 0 );
 }
 
-/*
- * Store the name in printable form into buf; no more
- * than size characters will be written
- */
-int mbedtls_x509_dn_gets( char *buf, size_t size, const mbedtls_x509_name *dn )
-{
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
-    size_t i, n;
-    unsigned char c, merge = 0;
-    const mbedtls_x509_name *name;
-    const char *short_name = NULL;
-    char s[MBEDTLS_X509_MAX_DN_NAME_SIZE], *p;
-
-    memset( s, 0, sizeof( s ) );
-
-    name = dn;
-    p = buf;
-    n = size;
-
-    while( name != NULL )
-    {
-        if( !name->oid.p )
-        {
-            name = name->next;
-            continue;
-        }
-
-        if( name != dn )
-        {
-            ret = mbedtls_snprintf( p, n, merge ? " + " : ", " );
-            MBEDTLS_X509_SAFE_SNPRINTF;
-        }
-
-        ret = mbedtls_oid_get_attr_short_name( &name->oid, &short_name );
-
-        if( ret == 0 )
-            ret = mbedtls_snprintf( p, n, "%s=", short_name );
-        else
-            ret = mbedtls_snprintf( p, n, "\?\?=" );
-        MBEDTLS_X509_SAFE_SNPRINTF;
-
-        for( i = 0; i < name->val.len; i++ )
-        {
-            if( i >= sizeof( s ) - 1 )
-                break;
-
-            c = name->val.p[i];
-            if( c < 32 || c >= 127 )
-                 s[i] = '?';
-            else s[i] = c;
-        }
-        s[i] = '\0';
-        ret = mbedtls_snprintf( p, n, "%s", s );
-        MBEDTLS_X509_SAFE_SNPRINTF;
-
-        merge = name->next_merged;
-        name = name->next;
-    }
-
-    return( (int) ( size - n ) );
-}
-
-/*
- * Store the serial in printable form into buf; no more
- * than size characters will be written
- */
-int mbedtls_x509_serial_gets( char *buf, size_t size, const mbedtls_x509_buf *serial )
-{
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
-    size_t i, n, nr;
-    char *p;
-
-    p = buf;
-    n = size;
-
-    nr = ( serial->len <= 32 )
-        ? serial->len  : 28;
-
-    for( i = 0; i < nr; i++ )
-    {
-        if( i == 0 && nr > 1 && serial->p[i] == 0x0 )
-            continue;
-
-        ret = mbedtls_snprintf( p, n, "%02X%s",
-                serial->p[i], ( i < nr - 1 ) ? ":" : "" );
-        MBEDTLS_X509_SAFE_SNPRINTF;
-    }
-
-    if( nr != serial->len )
-    {
-        ret = mbedtls_snprintf( p, n, "...." );
-        MBEDTLS_X509_SAFE_SNPRINTF;
-    }
-
-    return( (int) ( size - n ) );
-}
-
-#if !defined(MBEDTLS_X509_REMOVE_INFO)
-/*
- * Helper for writing signature algorithms
- */
-int mbedtls_x509_sig_alg_gets( char *buf, size_t size, const mbedtls_x509_buf *sig_oid,
-                       mbedtls_pk_type_t pk_alg, mbedtls_md_type_t md_alg,
-                       const void *sig_opts )
-{
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
-    char *p = buf;
-    size_t n = size;
-    const char *desc = NULL;
-
-    ret = mbedtls_oid_get_sig_alg_desc( sig_oid, &desc );
-    if( ret != 0 )
-        ret = mbedtls_snprintf( p, n, "???"  );
-    else
-        ret = mbedtls_snprintf( p, n, "%s", desc );
-    MBEDTLS_X509_SAFE_SNPRINTF;
-
-#if defined(MBEDTLS_X509_RSASSA_PSS_SUPPORT)
-    if( pk_alg == MBEDTLS_PK_RSASSA_PSS )
-    {
-        const mbedtls_pk_rsassa_pss_options *pss_opts;
-        const mbedtls_md_info_t *md_info, *mgf_md_info;
-
-        pss_opts = (const mbedtls_pk_rsassa_pss_options *) sig_opts;
-
-        md_info = mbedtls_md_info_from_type( md_alg );
-        mgf_md_info = mbedtls_md_info_from_type( pss_opts->mgf1_hash_id );
-
-        ret = mbedtls_snprintf( p, n, " (%s, MGF1-%s, 0x%02X)",
-                              md_info ? mbedtls_md_get_name( md_info ) : "???",
-                              mgf_md_info ? mbedtls_md_get_name( mgf_md_info ) : "???",
-                              (unsigned int) pss_opts->expected_salt_len );
-        MBEDTLS_X509_SAFE_SNPRINTF;
-    }
-#else
-    ((void) pk_alg);
-    ((void) md_alg);
-    ((void) sig_opts);
-#endif /* MBEDTLS_X509_RSASSA_PSS_SUPPORT */
-
-    return( (int)( size - n ) );
-}
-#endif /* MBEDTLS_X509_REMOVE_INFO */
-
-/*
- * Helper for writing "RSA key size", "EC key size", etc
- */
-int mbedtls_x509_key_size_helper( char *buf, size_t buf_size, const char *name )
-{
-    char *p = buf;
-    size_t n = buf_size;
-    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
-
-    ret = mbedtls_snprintf( p, n, "%s key size", name );
-    MBEDTLS_X509_SAFE_SNPRINTF;
-
-    return( 0 );
-}
-
 #if defined(MBEDTLS_HAVE_TIME_DATE)
 /*
  * Set the time structure to the current time.
@@ -927,40 +762,22 @@ static int x509_get_current_time( mbedtls_x509_time *now )
  */
 static int x509_check_time( const mbedtls_x509_time *before, const mbedtls_x509_time *after )
 {
-    if( before->year  > after->year )
-        return( 1 );
+    if( before->year != after->year )
+        return( before->year > after->year );
 
-    if( before->year == after->year &&
-        before->mon   > after->mon )
-        return( 1 );
+    if( before->mon  != after->mon )
+        return( before->mon  > after->mon  );
 
-    if( before->year == after->year &&
-        before->mon  == after->mon  &&
-        before->day   > after->day )
-        return( 1 );
+    if( before->day  != after->day )
+        return( before->day  > after->day  );
 
-    if( before->year == after->year &&
-        before->mon  == after->mon  &&
-        before->day  == after->day  &&
-        before->hour  > after->hour )
-        return( 1 );
+    if( before->hour != after->hour )
+        return( before->hour > after->hour );
 
-    if( before->year == after->year &&
-        before->mon  == after->mon  &&
-        before->day  == after->day  &&
-        before->hour == after->hour &&
-        before->min   > after->min  )
-        return( 1 );
+    if( before->min  != after->min  )
+        return( before->min  > after->min  );
 
-    if( before->year == after->year &&
-        before->mon  == after->mon  &&
-        before->day  == after->day  &&
-        before->hour == after->hour &&
-        before->min  == after->min  &&
-        before->sec   > after->sec  )
-        return( 1 );
-
-    return( 0 );
+    return(     before->sec  > after->sec  );
 }
 
 int mbedtls_x509_time_is_past( const mbedtls_x509_time *to )
